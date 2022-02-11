@@ -11,6 +11,10 @@ template.innerHTML = /*html*/`
       text-align: center;
     }
 
+    td.available:hover {
+      background-color: #eee;
+    }
+
     .buttons {
       // clear: both;
       text-align: right;
@@ -69,12 +73,14 @@ export class DateRangePicker extends HTMLElement {
       case 'start-date':
         // this.startDate = newValue;
         this.updateSelected()
-        this.renderCalendar()
+        this.renderCalendar("left")
+        this.renderCalendar("right")
         break;
       case 'end-date':
         // this.endDate = newValue;
         this.updateSelected()
-        this.renderCalendar()
+        this.renderCalendar("left")
+        this.renderCalendar("right")
         break;
     }
   }
@@ -86,7 +92,7 @@ export class DateRangePicker extends HTMLElement {
     selected.innerText = `${this.startDate} - ${this.endDate}`;
   }
 
-  renderCalendar() {
+  renderCalendar(side) {
     let date = new Date(this.startDate)
     let month = date.getMonth()
     let year = date.getFullYear();
@@ -139,7 +145,9 @@ export class DateRangePicker extends HTMLElement {
       col++
     }
 
-    var tableHTML = `
+    // TODO: Change this to programically generate elements? ex. .createElement('table')
+
+    let tableHTML = `
       <table class="table-condensed">
         <thead>
           <tr>
@@ -151,7 +159,7 @@ export class DateRangePicker extends HTMLElement {
     if (this.showWeekNumbers || this.showISOWeekNumbers) tableHTML += '<th class="week">' + "Week?" + '</th>';
 
     // $.each(this.locale.daysOfWeek, function(index, dayOfWeek) {
-      tableHTML += '<th>' + "MON?" + '</th>';
+      // tableHTML += '<th>' + "MON?" + '</th>';
     // });
 
     tableHTML += `
@@ -174,7 +182,7 @@ export class DateRangePicker extends HTMLElement {
         let classes = [];
 
         // Highlight today's date
-        // if (compareDates(new Date(), calendar[row][col])) classes.push('today');
+        // if (areDatesEqual(new Date(), calendar[row][col])) classes.push('today');
 
         // Highlight weekends
         // if (calendar[row][col].isoWeekday() > 5) classes.push('weekend');
@@ -196,10 +204,10 @@ export class DateRangePicker extends HTMLElement {
         //     classes.push('off', 'disabled');
 
         // Highlight the currently selected start date
-        // if (compareDates(calendar[row][col], new Date(this.startDate))) classes.push('active', 'start-date');
+        // if (areDatesEqual(calendar[row][col], new Date(this.startDate))) classes.push('active', 'start-date');
 
         // Highlight the currently selected end date
-        // if (this.endDate != null && compareDates(calendar[row][col], new Date(this.endDate))) classes.push('active', 'end-date');
+        // if (this.endDate != null && areDatesEqual(calendar[row][col], new Date(this.endDate))) classes.push('active', 'end-date');
 
         // Highlight dates in-between the selected dates
         // if (this.endDate != null && calendar[row][col] > this.startDate && calendar[row][col] < this.endDate) classes.push('in-range');
@@ -213,19 +221,15 @@ export class DateRangePicker extends HTMLElement {
         //         Array.prototype.push.apply(classes, isCustom);
         // }
 
-        let cname = '';
+        let className = '';
         let disabled = false;
         // for (var i = 0; i < classes.length; i++) {
-        //   cname += classes[i] + ' ';
+        //   className += classes[i] + ' ';
         //   if (classes[i] == 'disabled') disabled = true;
         // }
-        // if (!disabled) cname += 'available';
+        if (!disabled) className += 'available';
 
-        tableHTML += `
-          <td class="${cname.replace(/^\s+|\s+$/g, '')}" data-title="r${row}c${col}">
-            ${calendar.days[row][col].getDate()}
-          </td>`;
-
+        tableHTML += `<td class="${className.replace(/^\s+|\s+$/g, '')}" data-row="${row}" data-col="${col}">${calendar.days[row][col].getDate()}</td>`;
       }
       tableHTML += '</tr>';
     }
@@ -235,11 +239,38 @@ export class DateRangePicker extends HTMLElement {
       </table>
     `;
 
-    let side = "left" // TODO: remove
+    this.shadowRoot.querySelector(`.calendar-${side} .calendar-table`).innerHTML = tableHTML;
+  }
 
-    this.shadowRoot.querySelector(`.calendar-${side}`).innerHTML = tableHTML;
+  onHoverDate(ev) {
+    let hoveredDateEl = this.shadowRoot.querySelector(ev.target)
+    // Ignore dates that can't be selected
+    if (!hoveredDateEl.hasClass('available')) return;
 
-    // this.container.find('.calendar ' + side + ' .calendar-table').html(tableHTML);
+    let row = hoveredDateEl.dataset('row');
+    let col = hoveredDateEl.dataset('col');
+    let currentCalendar = hoveredDateEl.parents('.calendar');
+    let hoveredDate = currentCalendar.classList.contains('calendar-left') ? this.leftCalendar.calendar.days[row][col] : this.rightCalendar.calendar.days[row][col];
+
+    // Highlight the dates between the start date and the date being hovered as a potential end date
+    if (!this.endDate) {
+      this.container.find('.calendar tbody td').each((_, el) => {
+        let inBetweenEl = this.shadowRoot.querySelector(el)
+        // Skip week numbers, only look at dates
+        if (inBetweenEl.classList.contains('week')) return;
+
+        let row = inBetweenEl.dataset('row');
+        let col = inBetweenEl.dataset('col');
+        let currentCalendar = inBetweenEl.parents('.calendar');
+        let inBetweenDate = currentCalendar.classList.contains('calendar-left') ? this.leftCalendar.calendar.days[row][col] : this.rightCalendar.calendar.days[row][col];
+
+        if ((isDateAfter(inBetweenDate, new Date(this.startDate)) && isDateBefore(inBetweenDate, hoveredDate)) || areDatesEqual(hoveredDate, inBetweenDate)) {
+          inBetweenEl.classList.add('in-range');
+        } else {
+          inBetweenEl.classList.remove('in-range');
+        }
+      });
+    }
   }
 
   // Getters and Setters
@@ -263,7 +294,7 @@ export class DateRangePicker extends HTMLElement {
   // End Getters and Setters
 }
 
-const compareDates = (date, otherDate) => {
+const areDatesEqual = (date, otherDate) => {
   // TODO: Make time zone resistant
   // Copy dates to avoid mutating them when we reset time to compare
   let copiedDate = new Date(date.getTime());
@@ -272,6 +303,16 @@ const compareDates = (date, otherDate) => {
   copiedDate.setHours(0,0,0,0)
   copiedOtherDate.setHours(0,0,0,0)
   return copiedDate.getTime() === copiedOtherDate.getTime()
+}
+
+const isDateBefore = (date, otherDate) => {
+  // TODO: look at removing time for equation like itn areDatesEqual ?
+  return date.getTime() < otherDate.getTime()
+}
+
+const isDateAfter = (date, otherDate) => {
+  // TODO: look at removing time for equation like itn areDatesEqual ?
+  return date.getTime() > otherDate.getTime()
 }
 
 window.customElements.define('date-range-picker', DateRangePicker);
